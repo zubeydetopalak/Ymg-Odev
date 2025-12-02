@@ -2,9 +2,10 @@ import React, { useEffect, useState } from 'react';
 import {
     Container, Grid, Card, CardContent, Typography, CardActionArea,
     Chip, Button, Dialog, DialogTitle, DialogContent, TextField, DialogActions,
-    Box, Fab
+    Box, Fab, IconButton
 } from '@mui/material';
 import AddIcon from '@mui/icons-material/Add';
+import DeleteIcon from '@mui/icons-material/Delete';
 import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 
@@ -41,6 +42,19 @@ const Dashboard = () => {
         }
     };
 
+    const handleDeleteTable = async (e, tableId) => {
+        e.stopPropagation();
+        if (window.confirm('Bu masayı silmek istediğinize emin misiniz?')) {
+            try {
+                await api.delete(`/masalar/${tableId}`);
+                fetchTables();
+            } catch (error) {
+                console.error("Masa silinirken hata oluştu:", error);
+                alert("Masa silinemedi.");
+            }
+        }
+    };
+
     return (
         <Container sx={{ mt: 4 }}>
             <Box display="flex" justifyContent="space-between" alignItems="center" mb={4}>
@@ -67,11 +81,21 @@ const Dashboard = () => {
                                         <Typography variant="h5" component="div">
                                             {table.ad}
                                         </Typography>
-                                        <Chip
-                                            label={table.durum}
-                                            color={table.durum === 'Dolu' ? 'error' : 'success'}
-                                            size="small"
-                                        />
+                                        <Box>
+                                            <IconButton
+                                                aria-label="delete"
+                                                size="small"
+                                                onClick={(e) => handleDeleteTable(e, table.id)}
+                                                sx={{ mr: 1, zIndex: 10 }}
+                                            >
+                                                <DeleteIcon fontSize="small" />
+                                            </IconButton>
+                                            <Chip
+                                                label={table.durum}
+                                                color={table.durum === 'Dolu' ? 'error' : 'success'}
+                                                size="small"
+                                            />
+                                        </Box>
                                     </Box>
                                     <Typography variant="body2" color="text.secondary">
                                         Toplam Sipariş: {table.toplam_siparis_tutari} TL
@@ -81,6 +105,15 @@ const Dashboard = () => {
                                     </Typography>
                                 </CardContent>
                             </CardActionArea>
+                            <Box display="flex" justifyContent="flex-end" p={1}>
+                                <IconButton
+                                    aria-label="delete"
+                                    size="small"
+                                    onClick={(e) => handleDeleteTable(e, table.id)}
+                                >
+                                    <DeleteIcon fontSize="inherit" />
+                                </IconButton>
+                            </Box>
                         </Card>
                     </Grid>
                 ))}

@@ -274,6 +274,30 @@ def masayi_sifirla(masa_id):
 
     return jsonify({"message": f"{masa.masa_adi} ({masa.id}) sıfırlandı ve yeni müşteriye hazır."})
 
+@app.route('/masalar/<masa_id>', methods=['DELETE'])
+def masa_sil(masa_id):
+    """
+    Masa Sil
+    ---
+    parameters:
+      - in: path
+        name: masa_id
+        required: true
+        type: string
+    responses:
+      200:
+        description: Masa silindi
+      404:
+        description: Masa bulunamadı
+    """
+    masa = Masa.query.get(masa_id)
+    if not masa:
+        return jsonify({"error": "Masa bulunamadı"}), 404
+
+    db.session.delete(masa)
+    db.session.commit()
+    return jsonify({"message": "Masa başarıyla silindi"}), 200
+
 if __name__ == '__main__':
     # Docker için host='0.0.0.0' zorunludur.
     app.run(host='0.0.0.0', port=5000, debug=True)
