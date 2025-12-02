@@ -1,0 +1,306 @@
+openapi: 3.0.0
+info:
+  title: SmartBill Cafe API
+  description: |
+    Cafe Adisyon ve Masa Yönetim Sistemi API Dokümantasyonu.
+    Masaların durumunu takip etme, sipariş ekleme ve ödeme alma işlemlerini yönetir.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5004
+    description: Yerel Geliştirme Sunucusu
+
+paths:
+  /:
+    get:
+      summary: API Sağlık Kontrolü
+      description: API'nin çalışıp çalışmadığını kontrol eden basit bir endpoint.
+      tags:
+        - Genel
+      responses:
+        '200':
+          description: API başarıyla çalışıyor.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: SmartBill API Calisiyor
+                  status:
+                    type: string
+                    example: active
+
+  /masalar:
+    get:
+      summary: Tüm Masaları Listele
+      description: Sistemdeki tüm masaları, doluluk oranlarını ve bakiyelerini listeler.
+      tags:
+        - Masalar
+      responses:
+        '200':
+          description: Masalar başarıyla listelendi.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/MasaOzet'
+    post:
+      summary: Yeni Masa Oluştur
+      description: Sisteme yeni bir masa ekler.
+      tags:
+        - Masalar
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MasaEkleRequest'
+      responses:
+        '201':
+          description: Masa başarıyla oluşturuldu.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Masa başarıyla oluşturuldu
+                  masa_id:
+                    type: string
+                    example: Masa-1
+        '400':
+          description: Hatalı istek veya ID zaten var.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /masalar/{masa_id}:
+    get:
+      summary: Masa Detayı Getir
+      description: Belirtilen masanın detaylarını ve sipariş geçmişini getirir.
+      tags:
+        - Masalar
+      parameters:
+        - name: masa_id
+          in: path
+          required: true
+          description: Masa ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Masa detayları döndürüldü.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MasaDetay'
+        '404':
+          description: Masa bulunamadı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /masalar/{masa_id}/sifirla:
+    delete:
+      summary: Masayı Sıfırla
+      description: Masanın hesabını kapatır ve siparişleri siler.
+      tags:
+        - Masalar
+      parameters:
+        - name: masa_id
+          in: path
+          required: true
+          description: Masa ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Masa sıfırlandı.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Masa-1 sıfırlandı ve yeni müşteriye hazır.
+
+  /siparis:
+    post:
+      summary: Sipariş Ekle
+      description: Bir masaya yeni sipariş ekler.
+      tags:
+        - Siparişler
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SiparisEkleRequest'
+      responses:
+        '201':
+          description: Sipariş eklendi.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Sipariş eklendi
+                  masa:
+                    type: string
+                    example: Bahçe Masa 1
+                  urun:
+                    type: string
+                    example: Çay
+                  fiyat:
+                    type: number
+                    example: 15.0
+        '404':
+          description: Masa bulunamadı.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /odeme:
+    post:
+      summary: Ödeme Al
+      description: Bir masadan ödeme alır.
+      tags:
+        - Ödemeler
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OdemeRequest'
+      responses:
+        '200':
+          description: Ödeme işlendi.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Ödeme alındı
+                  odenen:
+                    type: number
+                    example: 50.0
+                  guncel_kalan_borc:
+                    type: number
+                    example: 100.5
+
+components:
+  schemas:
+    MasaOzet:
+      type: object
+      description: Masanın özet durum bilgisi
+      properties:
+        id:
+          type: string
+          example: Masa-1
+        ad:
+          type: string
+          example: Bahçe Masa 1
+        toplam_siparis_tutari:
+          type: number
+          format: float
+          example: 150.50
+        odenen_tutar:
+          type: number
+          format: float
+          example: 50.00
+        kalan_bakiye:
+          type: number
+          format: float
+          example: 100.50
+        durum:
+          type: string
+          enum: [Musait, Dolu]
+          example: Dolu
+
+    MasaDetay:
+      allOf:
+        - $ref: '#/components/schemas/MasaOzet'
+        - type: object
+          properties:
+            siparisler:
+              type: array
+              items:
+                $ref: '#/components/schemas/SiparisKalemi'
+
+    SiparisKalemi:
+      type: object
+      description: Tek bir sipariş kalemi
+      properties:
+        id:
+          type: integer
+          example: 1
+        ad:
+          type: string
+          example: Çay
+        tutar:
+          type: number
+          format: float
+          example: 15.00
+
+    MasaEkleRequest:
+      type: object
+      required:
+        - id
+        - masa_adi
+      properties:
+        id:
+          type: string
+          example: Masa-1
+        masa_adi:
+          type: string
+          example: Bahçe Masa 1
+
+    SiparisEkleRequest:
+      type: object
+      required:
+        - masa_id
+        - urun_adi
+        - tutar
+      properties:
+        masa_id:
+          type: string
+          example: Masa-1
+        urun_adi:
+          type: string
+          example: Çay
+        tutar:
+          type: number
+          format: float
+          example: 15.00
+
+    OdemeRequest:
+      type: object
+      required:
+        - masa_id
+        - tutar
+      properties:
+        masa_id:
+          type: string
+          example: Masa-1
+        tutar:
+          type: number
+          format: float
+          example: 50.00
+
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Masa bulunamadı
