@@ -1,17 +1,27 @@
 import os
+import jwt
+import datetime
+from functools import wraps
 from flask import Flask, request, jsonify
 from flasgger import Swagger
 from flask_cors import CORS
+from werkzeug.security import generate_password_hash, check_password_hash
 # models dosyasından db ve diğer sınıfları çekiyoruz
-from models import db, Masa, SiparisKalemi, get_masa_toplam_tutar
+from models import db, Masa, SiparisKalemi, User, get_masa_toplam_tutar
 
 app = Flask(__name__)
 CORS(app)
 
 # --- Yapılandırma ---
-# Docker Compose'dan gelen DATABASE_URL'i kullanır
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URL')
+# Docker Compose'dan gelen DATABASE_URL'i kullanır. Yoksa yerel SQLite kullanır.
+db_url = os.environ.get('DATABASE_URL')
+if not db_url:
+    db_url = 'sqlite:///smartbill.db'
+    print("--- UYARI: DATABASE_URL bulunamadı, yerel SQLite kullanılıyor (smartbill.db) ---")
+
+app.config['SQLALCHEMY_DATABASE_URI'] = db_url
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
+app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'gizli_anahtar_buraya') # Güvenlik için env'den alınmalı
 
 # Swagger'ı başlat
 swagger = Swagger(app)
@@ -28,6 +38,117 @@ with app.app_context():
     except Exception as e:
         print(f"--- DB Bağlantı Hatası: {e} ---")
 
+# --- Auth Decorator ---
+def token_required(f):
+    @wraps(f)
+    def decorated(*args, **kwargs):
+        token = None
+        # Header'da 'Authorization: Bearer <token>' formatı beklenir
+        if 'Authorization' in request.headers:
+            auth_header = request.headers['Authorization']
+            if auth_header.startswith('Bearer '):
+                token = auth_header.split(" ")[1]
+        
+        if not token:
+            return jsonify({'message': 'Token eksik!'}), 401
+        
+        try:
+            data = jwt.decode(token, app.config['SECRET_KEY'], algorithms=["HS256"])
+            current_user = User.query.filter_by(id=data['user_id']).first()
+        except jwt.ExpiredSignatureError:
+            return jsonify({'message': 'Token süresi doldu!'}), 403
+        except jwt.InvalidTokenError:
+            return jsonify({'message': 'Geçersiz token!'}), 403
+        except Exception as e:
+             return jsonify({'message': f'Token hatası: {str(e)}'}), 403
+
+        return f(current_user, *args, **kwargs)
+    
+    return decorated
+
+# --- Auth Routes ---
+
+@app.route('/register', methods=['POST'])
+def register():
+    """
+    Kullanıcı Kaydı
+    ---
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            username:
+              type: string
+            password:
+              type: string
+    responses:
+      201:
+        description: Kullanıcı oluşturuldu
+      400:
+        description: Kullanıcı zaten var
+    """
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Kullanıcı adı ve şifre gereklidir"}), 400
+
+    if User.query.filter_by(username=username).first():
+        return jsonify({"error": "Bu kullanıcı adı zaten alınmış"}), 400
+
+    hashed_password = generate_password_hash(password)
+    new_user = User(username=username, password=hashed_password)
+    db.session.add(new_user)
+    db.session.commit()
+
+    return jsonify({"message": "Kullanıcı başarıyla oluşturuldu"}), 201
+
+@app.route('/login', methods=['POST'])
+def login():
+    """
+    Kullanıcı Girişi ve Token Alma
+    ---
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          properties:
+            username:
+              type: string
+            password:
+              type: string
+    responses:
+      200:
+        description: Giriş başarılı, token döner
+      401:
+        description: Hatalı giriş
+    """
+    data = request.get_json()
+    username = data.get('username')
+    password = data.get('password')
+
+    if not username or not password:
+        return jsonify({"error": "Kullanıcı adı ve şifre gereklidir"}), 400
+
+    user = User.query.filter_by(username=username).first()
+
+    if user and check_password_hash(user.password, password):
+        # Token oluştur (30 dakika geçerli)
+        token = jwt.encode({
+            'user_id': user.id,
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(minutes=30)
+        }, app.config['SECRET_KEY'], algorithm="HS256")
+
+        return jsonify({'token': token})
+
+    return jsonify({"error": "Kullanıcı adı veya şifre hatalı"}), 401
+
 # --- Route'lar ---
 
 @app.route('/')
@@ -42,10 +163,13 @@ def home():
     return jsonify({"message": "SmartBill API Calisiyor", "status": "active"})
 
 @app.route('/masalar', methods=['POST'])
-def masa_olustur():
+@token_required
+def masa_olustur(current_user):
     """
     Yeni Masa Oluştur
     ---
+    security:
+      - Bearer: []
     parameters:
       - in: body
         name: body
@@ -84,10 +208,13 @@ def masa_olustur():
     return jsonify({"message": "Masa başarıyla oluşturuldu", "masa_id": yeni_masa.id}), 201
 
 @app.route('/masalar', methods=['GET'])
-def masalari_getir():
+@token_required
+def masalari_getir(current_user):
     """
     Tüm Masaları ve Durumlarını Listele
     ---
+    security:
+      - Bearer: []
     responses:
       200:
         description: Masalar listelendi
@@ -110,10 +237,13 @@ def masalari_getir():
     return jsonify(ozet)
 
 @app.route('/masalar/<masa_id>', methods=['GET'])
-def masa_detay_getir(masa_id):
+@token_required
+def masa_detay_getir(current_user, masa_id):
     """
     Tek Bir Masanın Detaylarını ve Siparişlerini Getir
     ---
+    security:
+      - Bearer: []
     parameters:
       - in: path
         name: masa_id
@@ -151,10 +281,13 @@ def masa_detay_getir(masa_id):
     })
 
 @app.route('/siparis', methods=['POST'])
-def siparis_ekle():
+@token_required
+def siparis_ekle(current_user):
     """
     Sipariş Ekle
     ---
+    security:
+      - Bearer: []
     parameters:
       - in: body
         name: body
@@ -201,10 +334,13 @@ def siparis_ekle():
     }), 201
 
 @app.route('/odeme', methods=['POST'])
-def odeme_yap():
+@token_required
+def odeme_yap(current_user):
     """
     Ödeme Al
     ---
+    security:
+      - Bearer: []
     parameters:
       - in: body
         name: body
@@ -248,10 +384,13 @@ def odeme_yap():
 # DİKKAT: Buradaki <int:masa_id> kısmını sildim, sadece <masa_id> yaptım.
 # Çünkü senin Masa modelinde ID string (örn: "masa1").
 @app.route('/masalar/<masa_id>/sifirla', methods=['DELETE'])
-def masayi_sifirla(masa_id):
+@token_required
+def masayi_sifirla(current_user, masa_id):
     """
     Masayı Sıfırla (Hesabı Kapat)
     ---
+    security:
+      - Bearer: []
     parameters:
       - in: path
         name: masa_id
@@ -275,10 +414,13 @@ def masayi_sifirla(masa_id):
     return jsonify({"message": f"{masa.masa_adi} ({masa.id}) sıfırlandı ve yeni müşteriye hazır."})
 
 @app.route('/masalar/<masa_id>', methods=['DELETE'])
-def masa_sil(masa_id):
+@token_required
+def masa_sil(current_user, masa_id):
     """
     Masa Sil
     ---
+    security:
+      - Bearer: []
     parameters:
       - in: path
         name: masa_id

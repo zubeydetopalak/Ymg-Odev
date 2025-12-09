@@ -31,6 +31,16 @@ class SiparisKalemi(db.Model):
     def __repr__(self):
         return f'<Siparis {self.ad} - {self.tutar} TL>'
 
+class User(db.Model):
+    __tablename__ = 'users'
+    
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(50), unique=True, nullable=False)
+    password = db.Column(db.String(255), nullable=False)
+
+    def __repr__(self):
+        return f'<User {self.username}>'
+
 def get_masa_toplam_tutar(masa_id):
     # scalar() sonucu None dönebilir, bunu kontrol ediyoruz.
     total = db.session.query(func.sum(SiparisKalemi.tutar)).filter_by(masa_id=masa_id).scalar()

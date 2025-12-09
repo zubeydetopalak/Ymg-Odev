@@ -6,7 +6,7 @@ services:
     container_name: postress_db
     environment:
       POSTGRES_DB: smartbill_db
-      POSTGRES_USER: user
+      POSTGRES_USER: smartbill_user
       POSTGRES_PASSWORD: password
     ports:
       - "5435:5432"
@@ -14,6 +14,11 @@ services:
       # Veritabanı verilerinin kalıcı olması için volume
       - postgres_data:/var/lib/postgresql/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U smartbill_user -d smartbill_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
   
   api:
     build: ./backend
@@ -21,11 +26,12 @@ services:
     command: python app.py
     environment:
       # API'nin veritabanına bağlanması için gerekli URI
-      DATABASE_URL: postgresql://user:password@db/smartbill_db
+      DATABASE_URL: postgresql://smartbill_user:password@db/smartbill_db
     ports:
       - "5004:5000"
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     # Veritabanı hazır olana kadar bekle
     restart: always
 
