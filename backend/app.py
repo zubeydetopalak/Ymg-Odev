@@ -10,7 +10,15 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from models import db, Masa, SiparisKalemi, User, get_masa_toplam_tutar
 
 app = Flask(__name__)
-CORS(app)
+# CORS ayarlarını genişletiyoruz
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
+
+@app.after_request
+def after_request(response):
+    response.headers.add('Access-Control-Allow-Origin', '*')
+    response.headers.add('Access-Control-Allow-Headers', 'Content-Type,Authorization')
+    response.headers.add('Access-Control-Allow-Methods', 'GET,PUT,POST,DELETE,OPTIONS')
+    return response
 
 # --- Yapılandırma ---
 # Docker Compose'dan gelen DATABASE_URL'i kullanır. Yoksa yerel SQLite kullanır.
